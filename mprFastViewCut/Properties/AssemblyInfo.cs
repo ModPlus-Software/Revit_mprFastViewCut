@@ -10,11 +10,7 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyCulture("")]
 [assembly: ComVisible(false)]
 
-#if R2015
-[assembly: AssemblyDescription("2015")]
-#elif R2016
-[assembly: AssemblyDescription("2016")]
-#elif R2017
+#if R2017
 [assembly: AssemblyDescription("2017")]
 #elif R2018
 [assembly: AssemblyDescription("2018")]
@@ -26,5 +22,5 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyDescription("2021")]
 #endif
 
-[assembly: AssemblyVersion("1.0.2.0")]
-[assembly: AssemblyFileVersion("1.0.2.0")]
+[assembly: AssemblyVersion("1.0.3.0")]
+[assembly: AssemblyFileVersion("1.0.3.0")]

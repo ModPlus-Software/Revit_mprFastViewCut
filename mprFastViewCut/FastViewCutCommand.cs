@@ -2,6 +2,7 @@
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using Autodesk.Revit.Attributes;
     using Autodesk.Revit.DB;
     using Autodesk.Revit.UI;
@@ -52,6 +53,13 @@
                     return Result.Cancelled;
                 }
 
+                if (activeView.ViewType == ViewType.DrawingSheet)
+                {
+                    // Работа на листах на данный момент недоступна. Используйте плагин на конкретных видах
+                    MessageBox.Show(GetLocalValue("h7"));
+                    return Result.Cancelled;
+                }
+
                 CutView(commandData.Application);
 
                 return Result.Succeeded;
@@ -69,7 +77,7 @@
 
         private void CutView(UIApplication uiApplication)
         {
-            var trName = Language.GetFunctionLocalName(new ModPlusConnector().Name, new ModPlusConnector().LName);
+            var trName = Language.GetFunctionLocalName(new ModPlusConnector());
             var uiDoc = uiApplication.ActiveUIDocument;
             var doc = uiDoc.Document;
             var selection = uiDoc.Selection;
@@ -77,8 +85,13 @@
             // Укажите прямоугольную область для создания границ подрезки
             var pickedBox = selection.PickBox(PickBoxStyle.Crossing, GetLocalValue("h5"));
 
+#if R2017 || R2018 || R2019 || R2020
             if (pickedBox.Min.DistanceTo(pickedBox.Max) < UnitUtils.ConvertToInternalUnits(1.0, DisplayUnitType.DUT_MILLIMETERS))
                 return;
+#else
+            if (pickedBox.Min.DistanceTo(pickedBox.Max) < UnitUtils.ConvertToInternalUnits(1.0, UnitTypeId.Milliamperes))
+                return;
+#endif
 
             var view = doc.ActiveView;
 
@@ -114,67 +127,91 @@
                     tr.Commit();
                 }
             }
-            else
+            else if (view is ViewSheet viewSheet)
             {
-                var cropRegionShapeManager = view.GetCropRegionShapeManager();
-                
-                var pt1 = pickedBox.Min;
-                var pt3 = pickedBox.Max;
-                var plane = CreatePlane(view.UpDirection, pt3);
-                var pt2 = plane.ProjectOnto(pt1);
-                plane = CreatePlane(view.UpDirection, pt1);
-                var pt4 = plane.ProjectOnto(pt3);
-
-                var line1 = TryCreateLine(pt1, pt2);
-                var line2 = TryCreateLine(pt2, pt3);
-                var line3 = TryCreateLine(pt3, pt4);
-                var line4 = TryCreateLine(pt4, pt1);
-
-                if (line1 == null || line2 == null || line3 == null || line4 == null)
+                // на листах нужно определить какой Viewport попадает в выделенную область и подрезать его
+                Viewport intersectedViewport = null;
+                var intersectArea = double.NaN;
+                foreach (var viewport in viewSheet.GetAllViewports()
+                    .Select(id => doc.GetElement(id) as Viewport)
+                    .Where(e => e != null))
                 {
-                    // Не удалось получить валидную прямоугольную область. Попробуйте еще раз
-                    MessageBox.Show(GetLocalValue("h6"));
-                    return;
-                }
-
-                var curveLoop = CurveLoop.Create(new List<Curve>
-                {
-                    line1, line2, line3, line4
-                });
-
-                if (curveLoop.IsRectangular(CreatePlane(view.ViewDirection, view.Origin)))
-                {
-                    using (var tr = new Transaction(doc, trName))
+                    if (IsIntersect(viewport, pickedBox, out var a) &&
+                        (double.IsNaN(intersectArea) || a > intersectArea))
                     {
-                        tr.Start();
-                        if (!view.CropBoxActive)
-                        {
-                            view.CropBoxActive = true;
-                            view.CropBoxVisible = false;
-                        }
-#if R2015
-                        cropRegionShapeManager.SetCropRegionShape(curveLoop);
-#else
-                        cropRegionShapeManager.SetCropShape(curveLoop);
-#endif
-                        tr.Commit();
+                        intersectedViewport = viewport;
+                        intersectArea = a;
                     }
                 }
-                else
+
+                if (intersectedViewport != null)
                 {
-                    // Не удалось получить валидную прямоугольную область. Попробуйте еще раз
-                    MessageBox.Show(GetLocalValue("h6"));
+                    view = doc.GetElement(intersectedViewport.ViewId) as View;
+
+                    // TODO Нужно выполнить трансформацию точек из пространства листа в пространство вида
+                    CropView(view, pickedBox, doc, trName);
                 }
+            }
+            else
+            {
+                CropView(view, pickedBox, doc, trName);
+            }
+        }
+
+        private static void CropView(View view, PickedBox pickedBox, Document doc, string trName)
+        {
+            var cropRegionShapeManager = view.GetCropRegionShapeManager();
+
+            var pt1 = pickedBox.Min;
+            var pt3 = pickedBox.Max;
+            var plane = CreatePlane(view.UpDirection, pt3);
+            var pt2 = plane.ProjectOnto(pt1);
+            plane = CreatePlane(view.UpDirection, pt1);
+            var pt4 = plane.ProjectOnto(pt3);
+
+            var line1 = TryCreateLine(pt1, pt2);
+            var line2 = TryCreateLine(pt2, pt3);
+            var line3 = TryCreateLine(pt3, pt4);
+            var line4 = TryCreateLine(pt4, pt1);
+
+            if (line1 == null || line2 == null || line3 == null || line4 == null)
+            {
+                // Не удалось получить валидную прямоугольную область. Попробуйте еще раз
+                MessageBox.Show(GetLocalValue("h6"));
+                return;
+            }
+
+            var curveLoop = CurveLoop.Create(new List<Curve>
+            {
+                line1, line2, line3, line4
+            });
+
+            if (curveLoop.IsRectangular(CreatePlane(view.ViewDirection, view.Origin)))
+            {
+                using (var tr = new Transaction(doc, trName))
+                {
+                    tr.Start();
+                    if (!view.CropBoxActive)
+                    {
+                        view.CropBoxActive = true;
+                        view.CropBoxVisible = false;
+                    }
+
+                    cropRegionShapeManager.SetCropShape(curveLoop);
+
+                    tr.Commit();
+                }
+            }
+            else
+            {
+                // Не удалось получить валидную прямоугольную область. Попробуйте еще раз
+                MessageBox.Show(GetLocalValue("h6"));
             }
         }
 
         private static Plane CreatePlane(XYZ vectorNormal, XYZ origin)
         {
-#if R2015 || R2016
-            return new Plane(vectorNormal, origin);
-#else
             return Plane.CreateByNormalAndOrigin(vectorNormal, origin);
-#endif
         }
 
         private static double GetBigger(double d1, double d2)
@@ -196,8 +233,13 @@
         {
             try
             {
+#if R2017 || R2018 || R2019 || R2020
                 if (pt1.DistanceTo(pt2) < UnitUtils.ConvertToInternalUnits(1.0, DisplayUnitType.DUT_MILLIMETERS))
                     return null;
+#else
+                if (pt1.DistanceTo(pt2) < UnitUtils.ConvertToInternalUnits(1.0, UnitTypeId.Milliamperes))
+                    return null;
+#endif
 
                 return Line.CreateBound(pt1, pt2);
             }
@@ -205,6 +247,67 @@
             {
                 return null;
             }
+        }
+
+        private bool IsIntersect(Viewport viewport, PickedBox pickedBox, out double intersectArea)
+        {
+            var plane = CreatePlane(XYZ.BasisZ, XYZ.Zero);
+            Outline outline = viewport.GetBoxOutline();
+            var viewportRectangle = GetRectangle(outline, plane);
+
+            Outline pickedOutline = new Outline(pickedBox.Min, pickedBox.Max);
+            var pickedRectangle = GetRectangle(pickedOutline, plane);
+
+            var intersectRectangle = System.Drawing.Rectangle.Intersect(viewportRectangle, pickedRectangle);
+            if (intersectRectangle.IsEmpty)
+            {
+                intersectArea = double.NaN;
+                return false;
+            }
+
+            intersectArea = intersectRectangle.Width * intersectRectangle.Height;
+            return true;
+        }
+
+        private System.Drawing.Rectangle GetRectangle(Outline outline, Plane plane)
+        {
+            var min = plane.ProjectOnto(outline.MinimumPoint);
+            var minPointX = (int)Math.Round(FtToMm(min.X));
+            var minPointY = (int)Math.Round(FtToMm(min.Y));
+            var max = plane.ProjectOnto(outline.MaximumPoint);
+            var maxPointX = (int)Math.Round(FtToMm(max.X));
+            var maxPointY = (int)Math.Round(FtToMm(max.Y));
+            var minX = Math.Min(minPointX, maxPointX);
+            var maxX = Math.Max(minPointX, maxPointX);
+            var minY = Math.Min(minPointY, maxPointY);
+            var maxY = Math.Max(minPointY, maxPointY);
+            return new System.Drawing.Rectangle(minX, minY, maxX - minX, maxY - minY);
+        }
+
+        /// <summary>
+        /// Конвертировать миллиметры в футы
+        /// </summary>
+        /// <param name="mm">Значение в миллиметрах</param>
+        public static double MmToFt(double mm)
+        {
+#if R2017 || R2018 || R2019 || R2020
+            return UnitUtils.ConvertToInternalUnits(mm, DisplayUnitType.DUT_MILLIMETERS);
+#else
+            return UnitUtils.ConvertToInternalUnits(mm, UnitTypeId.Millimeters);
+#endif
+        }
+
+        /// <summary>
+        /// Конвертировать футы в миллиметры
+        /// </summary>
+        /// <param name="ft">Значение в футах</param>
+        public static double FtToMm(double ft)
+        {
+#if R2017 || R2018 || R2019 || R2020
+            return UnitUtils.ConvertFromInternalUnits(ft, DisplayUnitType.DUT_MILLIMETERS);
+#else
+            return UnitUtils.ConvertFromInternalUnits(ft, UnitTypeId.Millimeters);
+#endif
         }
     }
 }
