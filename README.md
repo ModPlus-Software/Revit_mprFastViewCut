@@ -1,7 +1,7 @@
 # mprFastViewCut
 Quickly create a crop view by specifying a rectangular crop area
 ### Prodcut ###
-Revit >= 2015
+Revit >= 2017
 ### Plugin card ###
 https://modplus.org/revitplugins/mprfastviewcut
 ### This project uses
