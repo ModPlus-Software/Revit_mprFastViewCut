@@ -7,6 +7,7 @@
     using Autodesk.Revit.DB;
     using Autodesk.Revit.UI;
     using Autodesk.Revit.UI.Selection;
+    using ModPlus_Revit.Utils;
     using ModPlusAPI;
     using ModPlusAPI.Windows;
 
@@ -15,48 +16,48 @@
     [Regeneration(RegenerationOption.Manual)]
     public class FastViewCutCommand : IExternalCommand
     {
-        private static string Li => new ModPlusConnector().Name;
-
         /// <inheritdoc />
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
         {
             try
             {
+#if !DEBUG
                 Statistic.SendCommandStarting(new ModPlusConnector());
+#endif
 
                 var activeView = commandData.Application.ActiveUIDocument.Document.ActiveView;
                 if (activeView.IsTemplate)
                 {
                     // Работа в шаблоне вида невозможна
-                    MessageBox.Show(GetLocalValue("h1"));
+                    MessageBox.Show(Language.GetItem("h1"));
                     return Result.Cancelled;
                 }
 
                 if (activeView.ViewType == ViewType.Legend)
                 {
                     // Работа в легендах невозможна
-                    MessageBox.Show(GetLocalValue("h2"));
+                    MessageBox.Show(Language.GetItem("h2"));
                     return Result.Cancelled;
                 }
 
                 if (activeView.ViewType == ViewType.Schedule)
                 {
                     // Работа в спецификациях невозможна
-                    MessageBox.Show(GetLocalValue("h3"));
+                    MessageBox.Show(Language.GetItem("h3"));
                     return Result.Cancelled;
                 }
 
                 if (activeView.ViewType == ViewType.DraftingView)
                 {
                     // Работа в чертежных видах невозможна
-                    MessageBox.Show(GetLocalValue("h4"));
+                    MessageBox.Show(Language.GetItem("h4"));
                     return Result.Cancelled;
                 }
 
                 if (activeView.ViewType == ViewType.DrawingSheet)
                 {
                     // Работа на листах на данный момент недоступна. Используйте плагин на конкретных видах
-                    MessageBox.Show(GetLocalValue("h7"));
+                    MessageBox.Show(Language.GetItem("h7"));
                     return Result.Cancelled;
                 }
 
@@ -83,15 +84,10 @@
             var selection = uiDoc.Selection;
 
             // Укажите прямоугольную область для создания границ подрезки
-            var pickedBox = selection.PickBox(PickBoxStyle.Crossing, GetLocalValue("h5"));
+            var pickedBox = selection.PickBox(PickBoxStyle.Crossing, Language.GetItem("h5"));
 
-#if R2017 || R2018 || R2019 || R2020
-            if (pickedBox.Min.DistanceTo(pickedBox.Max) < UnitUtils.ConvertToInternalUnits(1.0, DisplayUnitType.DUT_MILLIMETERS))
+            if (pickedBox.Min.DistanceTo(pickedBox.Max) < 1.0.MmToFt())
                 return;
-#else
-            if (pickedBox.Min.DistanceTo(pickedBox.Max) < UnitUtils.ConvertToInternalUnits(1.0, UnitTypeId.Milliamperes))
-                return;
-#endif
 
             var view = doc.ActiveView;
 
@@ -177,7 +173,7 @@
             if (line1 == null || line2 == null || line3 == null || line4 == null)
             {
                 // Не удалось получить валидную прямоугольную область. Попробуйте еще раз
-                MessageBox.Show(GetLocalValue("h6"));
+                MessageBox.Show(Language.GetItem("h6"));
                 return;
             }
 
@@ -205,7 +201,7 @@
             else
             {
                 // Не удалось получить валидную прямоугольную область. Попробуйте еще раз
-                MessageBox.Show(GetLocalValue("h6"));
+                MessageBox.Show(Language.GetItem("h6"));
             }
         }
 
@@ -223,23 +219,13 @@
         {
             return d1 < d2 ? d1 : d2;
         }
-
-        private static string GetLocalValue(string key)
-        {
-            return Language.GetItem(Li, key);
-        }
-
+        
         private static Line TryCreateLine(XYZ pt1, XYZ pt2)
         {
             try
             {
-#if R2017 || R2018 || R2019 || R2020
-                if (pt1.DistanceTo(pt2) < UnitUtils.ConvertToInternalUnits(1.0, DisplayUnitType.DUT_MILLIMETERS))
+                if (pt1.DistanceTo(pt2) < 1.0.MmToFt())
                     return null;
-#else
-                if (pt1.DistanceTo(pt2) < UnitUtils.ConvertToInternalUnits(1.0, UnitTypeId.Milliamperes))
-                    return null;
-#endif
 
                 return Line.CreateBound(pt1, pt2);
             }
@@ -272,42 +258,16 @@
         private System.Drawing.Rectangle GetRectangle(Outline outline, Plane plane)
         {
             var min = plane.ProjectOnto(outline.MinimumPoint);
-            var minPointX = (int)Math.Round(FtToMm(min.X));
-            var minPointY = (int)Math.Round(FtToMm(min.Y));
+            var minPointX = (int)Math.Round(min.X.FtToMm());
+            var minPointY = (int)Math.Round(min.Y.FtToMm());
             var max = plane.ProjectOnto(outline.MaximumPoint);
-            var maxPointX = (int)Math.Round(FtToMm(max.X));
-            var maxPointY = (int)Math.Round(FtToMm(max.Y));
+            var maxPointX = (int)Math.Round(max.X.FtToMm());
+            var maxPointY = (int)Math.Round(max.Y.FtToMm());
             var minX = Math.Min(minPointX, maxPointX);
             var maxX = Math.Max(minPointX, maxPointX);
             var minY = Math.Min(minPointY, maxPointY);
             var maxY = Math.Max(minPointY, maxPointY);
             return new System.Drawing.Rectangle(minX, minY, maxX - minX, maxY - minY);
-        }
-
-        /// <summary>
-        /// Конвертировать миллиметры в футы
-        /// </summary>
-        /// <param name="mm">Значение в миллиметрах</param>
-        public static double MmToFt(double mm)
-        {
-#if R2017 || R2018 || R2019 || R2020
-            return UnitUtils.ConvertToInternalUnits(mm, DisplayUnitType.DUT_MILLIMETERS);
-#else
-            return UnitUtils.ConvertToInternalUnits(mm, UnitTypeId.Millimeters);
-#endif
-        }
-
-        /// <summary>
-        /// Конвертировать футы в миллиметры
-        /// </summary>
-        /// <param name="ft">Значение в футах</param>
-        public static double FtToMm(double ft)
-        {
-#if R2017 || R2018 || R2019 || R2020
-            return UnitUtils.ConvertFromInternalUnits(ft, DisplayUnitType.DUT_MILLIMETERS);
-#else
-            return UnitUtils.ConvertFromInternalUnits(ft, UnitTypeId.Millimeters);
-#endif
         }
     }
 }
