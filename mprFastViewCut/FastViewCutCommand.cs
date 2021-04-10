@@ -25,7 +25,7 @@
                 Statistic.SendCommandStarting(new ModPlusConnector());
 #endif
 
-                var activeView = commandData.Application.ActiveUIDocument.Document.ActiveView;
+                var activeView = commandData.Application.ActiveUIDocument.ActiveGraphicalView;
                 if (activeView.IsTemplate)
                 {
                     // Работа в шаблоне вида невозможна
