@@ -1,11 +1,11 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
 
-   <PropertyGroup>
-    <Version>1.0.4.0</Version>
+  <PropertyGroup>
+    <Version>1.0.5.0</Version>
     <RootNamespace>mprFastViewCut</RootNamespace>
     <AssemblyName>$(RootNamespace)</AssemblyName>
   </PropertyGroup>
-  
+
   <PropertyGroup>
     <Company>modplus.org</Company>
     <Authors>modplus.org</Authors>
@@ -118,5 +118,5 @@
     <Resource Include="Resources\mprFastViewCut_16x16.png" />
     <Resource Include="Resources\mprFastViewCut_32x32.png" />
   </ItemGroup>
-  
+
 </Project>

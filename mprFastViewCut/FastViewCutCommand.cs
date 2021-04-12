@@ -184,18 +184,35 @@
 
             if (curveLoop.IsRectangular(CreatePlane(view.ViewDirection, view.Origin)))
             {
-                using (var tr = new Transaction(doc, trName))
+                using (var transactionGroup = new TransactionGroup(doc))
                 {
-                    tr.Start();
-                    if (!view.CropBoxActive)
+                    transactionGroup.Start();
+                    
+                    using (var tr = new Transaction(doc, trName))
                     {
-                        view.CropBoxActive = true;
-                        view.CropBoxVisible = false;
+                        tr.Start();
+                        if (!view.CropBoxActive)
+                        {
+                            view.CropBoxActive = true;
+                            view.CropBoxVisible = false;
+                        }
+
+                        cropRegionShapeManager.SetCropShape(curveLoop);
+
+                        tr.Commit();
                     }
 
-                    cropRegionShapeManager.SetCropShape(curveLoop);
+                    // reset crop
+                    using (var tr = new Transaction(doc, trName))
+                    {
+                        tr.Start();
 
-                    tr.Commit();
+                        cropRegionShapeManager.RemoveCropRegionShape();
+
+                        tr.Commit();
+                    }
+                    
+                    transactionGroup.Assimilate();
                 }
             }
             else
@@ -219,7 +236,7 @@
         {
             return d1 < d2 ? d1 : d2;
         }
-        
+
         private static Line TryCreateLine(XYZ pt1, XYZ pt2)
         {
             try
